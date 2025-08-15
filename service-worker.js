@@ -14,7 +14,7 @@
 importScripts("https://storage.googleapis.com/workbox-cdn/releases/4.3.1/workbox-sw.js");
 
 importScripts(
-  "/GreifNet/precache-manifest.40ae6c059268eb06108ebe8ca2ddf384.js"
+  "/GreifNet/precache-manifest.ca3b56ea96a1d3ead4ee11412a6d26af.js"
 );
 
 self.addEventListener('message', (event) => {
