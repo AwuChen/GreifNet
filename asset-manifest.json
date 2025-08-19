@@ -1,22 +1,22 @@
 {
   "files": {
     "main.css": "/GreifNet/static/css/main.01b6fc35.chunk.css",
-    "main.js": "/GreifNet/static/js/main.de018b5d.chunk.js",
-    "main.js.map": "/GreifNet/static/js/main.de018b5d.chunk.js.map",
+    "main.js": "/GreifNet/static/js/main.0d6ea6c6.chunk.js",
+    "main.js.map": "/GreifNet/static/js/main.0d6ea6c6.chunk.js.map",
     "runtime-main.js": "/GreifNet/static/js/runtime-main.7c1d5643.js",
     "runtime-main.js.map": "/GreifNet/static/js/runtime-main.7c1d5643.js.map",
-    "static/js/2.d6f52a54.chunk.js": "/GreifNet/static/js/2.d6f52a54.chunk.js",
-    "static/js/2.d6f52a54.chunk.js.map": "/GreifNet/static/js/2.d6f52a54.chunk.js.map",
+    "static/js/2.1f3441da.chunk.js": "/GreifNet/static/js/2.1f3441da.chunk.js",
+    "static/js/2.1f3441da.chunk.js.map": "/GreifNet/static/js/2.1f3441da.chunk.js.map",
     "index.html": "/GreifNet/index.html",
-    "precache-manifest.595e9d552b5913ce1bde42b5344c6772.js": "/GreifNet/precache-manifest.595e9d552b5913ce1bde42b5344c6772.js",
+    "precache-manifest.9950b7b92f8bf255faea3b61936d6641.js": "/GreifNet/precache-manifest.9950b7b92f8bf255faea3b61936d6641.js",
     "service-worker.js": "/GreifNet/service-worker.js",
     "static/css/main.01b6fc35.chunk.css.map": "/GreifNet/static/css/main.01b6fc35.chunk.css.map",
-    "static/js/2.d6f52a54.chunk.js.LICENSE.txt": "/GreifNet/static/js/2.d6f52a54.chunk.js.LICENSE.txt"
+    "static/js/2.1f3441da.chunk.js.LICENSE.txt": "/GreifNet/static/js/2.1f3441da.chunk.js.LICENSE.txt"
   },
   "entrypoints": [
     "static/js/runtime-main.7c1d5643.js",
-    "static/js/2.d6f52a54.chunk.js",
+    "static/js/2.1f3441da.chunk.js",
     "static/css/main.01b6fc35.chunk.css",
-    "static/js/main.de018b5d.chunk.js"
+    "static/js/main.0d6ea6c6.chunk.js"
   ]
 }
