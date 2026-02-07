@@ -1482,7 +1482,7 @@ const NFCTrigger = ({ addNode }) => {
       {status === "setup" && (
         <div>
           <p style={{ fontSize: "22px", marginBottom: "10px" }}>Set up this phone as <strong>{username}</strong>'s device?</p>
-          <p style={{ color: "#666", fontSize: "14px", marginBottom: "20px" }}>Tap your own card once to claim this phone. After that, tapping other people's cards will add them to your network.</p>
+          <p style={{ color: "#666", fontSize: "14px", marginBottom: "20px" }}>Tap your own card once to link with your phone. After that, tapping other people's cards will add them to your network.</p>
           <button
             onClick={handleSetup}
             style={{ padding: "12px 32px", fontSize: "16px", backgroundColor: "#4CAF50", color: "white", border: "none", borderRadius: "6px", cursor: "pointer" }}
@@ -1539,7 +1539,7 @@ const ResetPhone = () => {
       {currentOwner ? (
         <div>
           <p>This phone is currently set up as <strong>{currentOwner}</strong>'s device.</p>
-          <p style={{ color: "#666", fontSize: "14px", marginBottom: "20px" }}>Resetting will require tapping your own card again to reclaim this phone.</p>
+          <p style={{ color: "#666", fontSize: "14px", marginBottom: "20px" }}>Resetting will require tapping your own card again to relink this phone.</p>
           <button
             onClick={handleReset}
             style={{ padding: "12px 32px", fontSize: "16px", backgroundColor: "#f44336", color: "white", border: "none", borderRadius: "6px", cursor: "pointer", marginRight: "10px" }}
@@ -2115,9 +2115,6 @@ const ResetPhone = () => {
           setFocusNode(node.name);
           setClickedNode(node.name);
           setLastAction('click');
-          
-          // Clear relationship note when clicking a different node
-          setRelationshipNote("");
           
           // Update user activity when clicking nodes
           updateUserActivity();
