@@ -32,7 +32,6 @@ class CypherViz extends React.Component {
       processingMutation: false,
       lastUserActivity: Date.now(),
       isUserActive: true,
-      nfcNodeForAutoPopup: null, // For auto-popup form on NFC tap
       timelineMode: false, // Timeline mode toggle
       timelineDate: null, // Current timeline date
       timelineData: null, // Timeline-specific data
@@ -1016,15 +1015,15 @@ class CypherViz extends React.Component {
     }
   }
 
-  addNodeNFC = async (newUser, nfcUserName) => {
+  addNodeNFC = async (cardUser, phoneOwner) => {
     // Helper function to capitalize first letter of each word
     const capitalizeWords = (str) => {
       if (!str) return str;
       return str.split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()).join(' ');
     };
 
-    const capitalizedNewUser = capitalizeWords(newUser);
-    const capitalizedNfcUser = capitalizeWords(nfcUserName);
+    const capitalizedCardUser = capitalizeWords(cardUser);
+    const capitalizedPhoneOwner = capitalizeWords(phoneOwner);
 
     // Set NFC operation flag to prevent double reload
     this.isNFCOperation = true;
@@ -1036,140 +1035,52 @@ class CypherViz extends React.Component {
 
     let session = this.driver.session({ database: "neo4j" });
     try {
-      // Create a single timestamp for the entire operation
       const timestamp = Date.now();
-      
-      // First, check if a node with the same name as the new user already exists
-      const checkExistingUser = await session.run(
-        `MATCH (u:User {name: $user}) RETURN u.name as name`,
-        { user: capitalizedNewUser }
-      );
 
-      let nodeToFocus = capitalizedNewUser;
-      let isExistingNode = false;
-
-      if (checkExistingUser.records.length > 0) {
-        // Node with this name already exists, use the existing node
-        console.log(`Node with name "${capitalizedNewUser}" already exists, using existing node`);
-        isExistingNode = true;
-        nodeToFocus = capitalizedNewUser;
-      } else {
-        // Node doesn't exist, create a new one
-        console.log(`Creating new node with name "${capitalizedNewUser}"`);
-      }
-
-      // Only run duplicate cleanup for new nodes, not for existing nodes being merged
-      if (!this.isNFCOperation || !this.pendingNFCNode) {
-        // First, check if there are multiple nodes with the same name and merge them
-        const duplicateCheck = await session.run(
-          `MATCH (u:User {name: $user})
-           RETURN count(u) as count`,
-          { user: capitalizedNewUser }
-        );
-        
-        const duplicateCount = duplicateCheck.records[0].get('count').toNumber();
-        
-        if (duplicateCount > 1) {
-          console.log(`Found ${duplicateCount} duplicate nodes for "${capitalizedNewUser}", merging them...`);
-          
-          // Get all nodes with this name and their properties
-          const allNodes = await session.run(
-            `MATCH (u:User {name: $user})
-             RETURN u.role as role, u.location as location, u.website as website
-             ORDER BY u.role DESC, u.location DESC, u.website DESC`,
-            { user: capitalizedNewUser }
-          );
-          
-          // Find the best properties (non-empty values)
-          let bestRole = '';
-          let bestLocation = '';
-          let bestWebsite = '';
-          
-          allNodes.records.forEach(record => {
-            const role = record.get('role');
-            const location = record.get('location');
-            const website = record.get('website');
-            
-            if (role && role !== '') bestRole = role;
-            if (location && location !== '') bestLocation = location;
-            if (website && website !== '') bestWebsite = website;
-          });
-          
-          // Delete all nodes with this name and recreate with best properties
-          await session.run(
-            `MATCH (u:User {name: $user})
-             DETACH DELETE u`,
-            { user: capitalizedNewUser }
-          );
-          
-          // Create a single node with the best properties
-          await session.run(
-            `CREATE (u:User {name: $user, role: $role, location: $location, website: $website, createdAt: $createdAt})`,
-            { 
-              user: capitalizedNewUser,
-              role: bestRole,
-              location: bestLocation,
-              website: bestWebsite,
-              createdAt: timestamp
-            }
-          );
-          
-          console.log(`Merged duplicate nodes for "${capitalizedNewUser}" with properties:`, { bestRole, bestLocation, bestWebsite, timestamp });
-        }
-      }
-
-      // Create or connect the nodes
-      // Use the same timestamp for consistency across all operations
+      // Merge both user nodes and create the connection
       await session.run(
-        `MERGE (u:User {name: $user}) 
-         ON CREATE SET u.role = '', 
-                       u.location = '', 
-                       u.website = '',
-                       u.createdAt = $timestamp
+        `MERGE (owner:User {name: $phoneOwner}) 
+         ON CREATE SET owner.role = '', 
+                       owner.location = '', 
+                       owner.website = '',
+                       owner.createdAt = $timestamp
 
-         MERGE (nfc:User {name: $nfcUser}) 
-         ON CREATE SET nfc.role = '', 
-                       nfc.location = '', 
-                       nfc.website = '',
-                       nfc.createdAt = $timestamp
+         MERGE (card:User {name: $cardUser}) 
+         ON CREATE SET card.role = '', 
+                       card.location = '', 
+                       card.website = '',
+                       card.createdAt = $timestamp
 
-         MERGE (u)-[r:CONNECTED_TO]->(nfc) 
+         MERGE (owner)-[r:CONNECTED_TO]->(card) 
          ON CREATE SET r.createdAt = $timestamp
         `,
         { 
-          user: capitalizedNewUser, 
-          nfcUser: capitalizedNfcUser,
+          phoneOwner: capitalizedPhoneOwner, 
+          cardUser: capitalizedCardUser,
           timestamp: timestamp
         }
-        );
+      );
       
-      console.log(`Created/connected nodes with timestamp: ${timestamp} for ${capitalizedNewUser} -> ${capitalizedNfcUser}`);
+      console.log(`NFC: Connected ${capitalizedPhoneOwner} -> ${capitalizedCardUser} at ${timestamp}`);
       
-      // Store the node name for focusing after mutation completes
-      this.pendingNFCNode = nodeToFocus;
+      // Store the card user node for focusing after reload
+      this.pendingNFCNode = capitalizedCardUser;
       
-      // Trigger a single loadData call to reload the graph with the node
-      await this.loadData(nodeToFocus, this.defaultQuery);
+      // Reload the graph
+      await this.loadData(capitalizedCardUser, this.defaultQuery);
       
-      // Wait for the state to be updated, then focus and auto-popup form
+      // Wait for the state to update, then focus on the new node
       let checkCount = 0;
       const waitForStateUpdate = () => {
-        const nodeExists = this.state.data.nodes.find(n => n.name === nodeToFocus);
+        const nodeExists = this.state.data.nodes.find(n => n.name === capitalizedCardUser);
         checkCount++;
         
         if (nodeExists) {
-          this.focusOnNewNode(nodeToFocus, this.state.data);
+          this.focusOnNewNode(capitalizedCardUser, this.state.data);
           this.pendingNFCNode = null;
           this.isNFCOperation = false;
-          
-          // Refresh timeline stats if in timeline mode
           this.refreshTimelineStats();
-          
-          // Auto-popup the form for the NFC node (whether new or existing)
-          this.setState({ 
-            nfcNodeForAutoPopup: nodeToFocus 
-          });
-        } else if (checkCount < 10) { // Limit retries to prevent infinite loops
+        } else if (checkCount < 10) {
           setTimeout(waitForStateUpdate, 500);
         } else {
           console.error("Failed to find node in state after multiple attempts");
@@ -1178,11 +1089,10 @@ class CypherViz extends React.Component {
         }
       };
       
-      // Start checking for state update after a short delay
       setTimeout(waitForStateUpdate, 1000);
       
     } catch (error) {
-      console.error("Error adding user:", error);
+      console.error("Error adding NFC connection:", error);
       this.pendingNFCNode = null;
       this.isNFCOperation = false;
     } finally {
@@ -1243,11 +1153,6 @@ class CypherViz extends React.Component {
     if (!isValidQuery) {
       this.setState({ query: this.defaultQuery });
     }
-  };
-
-  // Callback to clear NFC popup trigger
-  onNfcPopupTriggered = () => {
-    this.setState({ nfcNodeForAutoPopup: null });
   };
 
   // Timeline methods
@@ -1486,6 +1391,7 @@ class CypherViz extends React.Component {
       <Router>
       <div>
       <Routes>
+      <Route path="/reset" element={<ResetPhone />} />
       <Route path="/:username" element={<NFCTrigger addNode={this.addNodeNFC} />} />
       <Route path="/" element={
         <GraphView 
@@ -1501,8 +1407,6 @@ class CypherViz extends React.Component {
         isUserActive={this.state.isUserActive}
         scaleTransitionStart={this.scaleTransitionStart}
         scaleTransitionDuration={this.scaleTransitionDuration}
-        nfcNodeForAutoPopup={this.state.nfcNodeForAutoPopup}
-        onNfcPopupTriggered={this.onNfcPopupTriggered}
         timelineMode={this.state.timelineMode}
         timelineDate={this.state.timelineDate}
         timelineData={this.state.timelineData}
@@ -1523,36 +1427,143 @@ class CypherViz extends React.Component {
 }
 
 const NFCTrigger = ({ addNode }) => {
-  const location = useLocation();
   const { username } = useParams();
+  const [status, setStatus] = useState(null); // 'setup' | 'connecting' | 'connected' | 'self' | 'error'
+  const [phoneOwner, setPhoneOwner] = useState(() => localStorage.getItem("greifnet_phone_owner"));
 
-  React.useEffect(() => {
-    const addAndRedirect = async () => {
-      // Generate a unique identifier for the person tapping the NFC tag
-      // This could be based on device info, session, or a random ID
-      const newUser = `User-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-      console.log(`NFC Trigger: Starting NFC operation for ${username} with visitor ${newUser}`);
+  useEffect(() => {
+    if (!username) return;
 
+    // Case 1: No phone owner set — first-time setup
+    if (!phoneOwner) {
+      setStatus("setup");
+      return;
+    }
+
+    // Case 2: Tapped own card — no-op, redirect home
+    if (username.toLowerCase() === phoneOwner.toLowerCase()) {
+      setStatus("self");
+      setTimeout(() => {
+        window.location.assign("/GreifNet/#/");
+      }, 1500);
+      return;
+    }
+
+    // Case 3: Tapped someone else's card — auto-connect
+    const connectAndRedirect = async () => {
+      setStatus("connecting");
       try {
-        await addNode(newUser, username); // newUser = visitor, username = NFC tag owner
-        console.log(`NFC Trigger: addNode completed successfully`);
-        } catch (error) {
-          console.error("NFC Trigger: Error adding user:", error);
-          return;
-        }
+        await addNode(username, phoneOwner); // cardUser = person on the card, phoneOwner = this phone's owner
+        console.log(`NFC Trigger: Connected ${phoneOwner} with ${username}`);
+        setStatus("connected");
+      } catch (error) {
+        console.error("NFC Trigger: Error adding connection:", error);
+        setStatus("error");
+      }
+      setTimeout(() => {
+        window.location.assign("/GreifNet/#/");
+      }, 2000);
+    };
 
-        setTimeout(() => {
-          window.location.assign("/GreifNet/#/");
-          }, 2000);
-        };
+    connectAndRedirect();
+  }, [username, phoneOwner]);
 
-        addAndRedirect();
-        }, [location, username]);
+  const handleSetup = () => {
+    localStorage.setItem("greifnet_phone_owner", username);
+    setPhoneOwner(username);
+    setStatus("setup-complete");
+    setTimeout(() => {
+      window.location.assign("/GreifNet/#/");
+    }, 2000);
+  };
 
-        return <div style={{ textAlign: "center", padding: "20px", fontSize: "16px", color: "red" }}>Adding you to {username}'s network...</div>
-      };
+  return (
+    <div style={{ textAlign: "center", padding: "40px 20px", fontSize: "18px", fontFamily: "sans-serif" }}>
+      {status === "setup" && (
+        <div>
+          <p style={{ fontSize: "22px", marginBottom: "10px" }}>Set up this phone as <strong>{username}</strong>'s device?</p>
+          <p style={{ color: "#666", fontSize: "14px", marginBottom: "20px" }}>Tap your own card once to claim this phone. After that, tapping other people's cards will add them to your network.</p>
+          <button
+            onClick={handleSetup}
+            style={{ padding: "12px 32px", fontSize: "16px", backgroundColor: "#4CAF50", color: "white", border: "none", borderRadius: "6px", cursor: "pointer" }}
+          >
+            Yes, this is me
+          </button>
+        </div>
+      )}
+      {status === "setup-complete" && (
+        <div>
+          <p style={{ color: "#4CAF50", fontSize: "22px" }}>You're all set, {username}!</p>
+          <p style={{ color: "#666", fontSize: "14px" }}>Redirecting to your network...</p>
+        </div>
+      )}
+      {status === "connecting" && (
+        <p style={{ color: "#2196F3" }}>Connecting with {username}...</p>
+      )}
+      {status === "connected" && (
+        <p style={{ color: "#4CAF50" }}>Connected with {username}!</p>
+      )}
+      {status === "self" && (
+        <p style={{ color: "#666" }}>Welcome back, {username}! Redirecting...</p>
+      )}
+      {status === "error" && (
+        <p style={{ color: "red" }}>Something went wrong. Please try again.</p>
+      )}
+    </div>
+  );
+};
 
-              const GraphView = ({ data, handleChange, loadData, fgRef, latestNode, pollingFocusNode, driver, processingMutation, updateUserActivity, isUserActive, scaleTransitionStart, scaleTransitionDuration, nfcNodeForAutoPopup, onNfcPopupTriggered, timelineMode, timelineDate, timelineData, timelineStats, toggleTimelineMode, loadTimelineData, updateTimelineDate, resetToCurrentTime }) => {
+const ResetPhone = () => {
+  const [reset, setReset] = useState(false);
+  const currentOwner = localStorage.getItem("greifnet_phone_owner");
+
+  const handleReset = () => {
+    localStorage.removeItem("greifnet_phone_owner");
+    setReset(true);
+    setTimeout(() => {
+      window.location.assign("/GreifNet/#/");
+    }, 2000);
+  };
+
+  if (reset) {
+    return (
+      <div style={{ textAlign: "center", padding: "40px 20px", fontSize: "18px", fontFamily: "sans-serif" }}>
+        <p style={{ color: "#4CAF50" }}>Phone ownership has been reset.</p>
+        <p style={{ color: "#666", fontSize: "14px" }}>Redirecting...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ textAlign: "center", padding: "40px 20px", fontSize: "18px", fontFamily: "sans-serif" }}>
+      {currentOwner ? (
+        <div>
+          <p>This phone is currently set up as <strong>{currentOwner}</strong>'s device.</p>
+          <p style={{ color: "#666", fontSize: "14px", marginBottom: "20px" }}>Resetting will require tapping your own card again to reclaim this phone.</p>
+          <button
+            onClick={handleReset}
+            style={{ padding: "12px 32px", fontSize: "16px", backgroundColor: "#f44336", color: "white", border: "none", borderRadius: "6px", cursor: "pointer", marginRight: "10px" }}
+          >
+            Reset
+          </button>
+          <button
+            onClick={() => window.location.assign("/GreifNet/#/")}
+            style={{ padding: "12px 32px", fontSize: "16px", backgroundColor: "#999", color: "white", border: "none", borderRadius: "6px", cursor: "pointer" }}
+          >
+            Cancel
+          </button>
+        </div>
+      ) : (
+        <div>
+          <p>No phone owner is set up yet.</p>
+          <p style={{ color: "#666", fontSize: "14px" }}>Tap your NFC card to set up this phone.</p>
+        </div>
+      )}
+    </div>
+  );
+};
+
+              const GraphView = ({ data, handleChange, loadData, fgRef, latestNode, pollingFocusNode, driver, processingMutation, updateUserActivity, isUserActive, scaleTransitionStart, scaleTransitionDuration, timelineMode, timelineDate, timelineData, timelineStats, toggleTimelineMode, loadTimelineData, updateTimelineDate, resetToCurrentTime }) => {
         const [inputValue, setInputValue] = useState(""); 
         const [selectedNode, setSelectedNode] = useState(null);
         const [editedNode, setEditedNode] = useState(null);
@@ -1562,16 +1573,8 @@ const NFCTrigger = ({ addNode }) => {
         const [mutatedNodes, setMutatedNodes] = useState([]); // Track nodes created/modified by mutation queries
         const [analyticalAnswer, setAnalyticalAnswer] = useState(null); // For displaying analytical answers
         const [showAnalyticalModal, setShowAnalyticalModal] = useState(false); // For showing/hiding the answer modal
-        const [relationshipNote, setRelationshipNote] = useState(""); // For relationship notes when connecting to existing nodes
-        const [nfcNameInput, setNfcNameInput] = useState("");
-        const [nfcRoleInput, setNfcRoleInput] = useState(""); // For initial NFC name input
-        const [showNfcNamePopup, setShowNfcNamePopup] = useState(false); // For showing NFC name input popup
-        const [showProfilePopup, setShowProfilePopup] = useState(false); // For showing profile completion popup
-        const [pendingNfcName, setPendingNfcName] = useState(""); // Store the name that was entered
         const [selectedLink, setSelectedLink] = useState(null); // For selected relationship/link
         const [relationshipData, setRelationshipData] = useState({}); // Store relationship data
-        const [showNfcRelationshipPopup, setShowNfcRelationshipPopup] = useState(false);
-        const [currentNfcConnection, setCurrentNfcConnection] = useState(null); // For NFC relationship note popup
         const [hoveredLink, setHoveredLink] = useState(null); // For link hover effects
         const [focusTimeout, setFocusTimeout] = useState(null); // Track focus timeout
         const [autoZoomTriggered, setAutoZoomTriggered] = useState(false); // Track if auto-zoom has been triggered
@@ -1588,27 +1591,6 @@ const NFCTrigger = ({ addNode }) => {
             setAutoZoomTriggered(false); // Allow new auto-zoom for this latestNode
           }
         }, [latestNode, focusTimeout]);
-
-        // Auto-popup form for NFC nodes
-        useEffect(() => {
-          if (nfcNodeForAutoPopup && data.nodes.length > 0) {
-            // Find the NFC node in the data
-            const nfcNode = data.nodes.find(node => node.name === nfcNodeForAutoPopup);
-            if (nfcNode) {
-              // Show the initial name input popup for NFC nodes
-              setShowNfcNamePopup(true);
-              setNfcNameInput("");
-              setFocusNode(nfcNode.name);
-              setClickedNode(nfcNode.name);
-              setLastAction('latestNode');
-              
-              // Clear the nfcNodeForAutoPopup after triggering the popup
-              if (typeof onNfcPopupTriggered === 'function') {
-                onNfcPopupTriggered();
-              }
-            }
-          }
-        }, [nfcNodeForAutoPopup, data.nodes]);
 
         // Initial zoom when graph first loads
         useEffect(() => {
@@ -2375,240 +2357,6 @@ const NFCTrigger = ({ addNode }) => {
           }
         };
 
-        const saveRelationshipNote = async () => {
-          if (!selectedNode || !relationshipNote.trim()) return;
-
-          const session = driver.session();
-          try {
-            let sourceName, targetName;
-            
-            if (showNfcRelationshipPopup) {
-              // This is an NFC operation - use the tracked connection
-              if (currentNfcConnection) {
-                sourceName = currentNfcConnection.source;
-                targetName = currentNfcConnection.target;
-              } else {
-                // Fallback: try to find the connection
-                const fallbackResult = await session.run(
-                  `MATCH (source:User)-[r:CONNECTED_TO]->(target:User {name: $holderName})
-                   RETURN source.name as sourceName, target.name as targetName
-                   ORDER BY source.name DESC
-                   LIMIT 1`,
-                  { holderName: selectedNode.name }
-                );
-                
-                if (fallbackResult.records.length > 0) {
-                  const record = fallbackResult.records[0];
-                  sourceName = record.get('sourceName');
-                  targetName = record.get('targetName');
-                }
-              }
-            } else {
-              // This is a regular relationship note - use the existing logic
-              const nfcHolderResult = await session.run(
-                `MATCH (existing:User {name: $existingName})-[r:CONNECTED_TO]->(holder:User)
-                 RETURN holder.name as holderName`,
-                { existingName: selectedNode.name }
-              );
-              
-              const nfcHolderName = nfcHolderResult.records[0]?.get('holderName');
-              
-              if (nfcHolderName) {
-                sourceName = selectedNode.name;
-                targetName = nfcHolderName;
-              }
-            }
-            
-            if (sourceName && targetName) {
-              // Add the relationship note as a property to the connection
-              const updateResult = await session.run(
-                `MATCH (source:User {name: $sourceName})-[r:CONNECTED_TO]->(target:User {name: $targetName})
-                 SET r.note = $note
-                 RETURN r.note as updatedNote`,
-                {
-                  sourceName: sourceName,
-                  targetName: targetName,
-                  note: relationshipNote.trim()
-                }
-              );
-              
-              if (updateResult.records.length > 0) {
-                const updatedNote = updateResult.records[0].get('updatedNote');
-              }
-            }
-            
-            setSelectedNode(null); // Close the panel
-            setRelationshipNote(""); // Clear the note
-            setPendingNfcName(""); // Clear pending name
-            setShowNfcRelationshipPopup(false); // Close NFC relationship popup
-            setCurrentNfcConnection(null); // Clear the tracked connection
-          } catch (error) {
-            console.error("Error saving relationship note:", error);
-          } finally {
-            session.close();
-          }
-        };
-
-        const handleNfcNameSubmit = async () => {
-          if (!nfcNameInput.trim()) return;
-
-          // Helper function to capitalize first letter of each word
-          const capitalizeWords = (str) => {
-            if (!str) return str;
-            return str.split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()).join(' ');
-          };
-
-          const capitalizedName = capitalizeWords(nfcNameInput.trim());
-          setPendingNfcName(capitalizedName);
-
-          const session = driver.session();
-          try {
-            // Check if a node with this name already exists
-            const existingNodeCheck = await session.run(
-              `MATCH (u:User {name: $name}) RETURN u`,
-              { name: capitalizedName }
-            );
-
-            if (existingNodeCheck.records.length > 0) {
-              // Node exists - merge visitor into existing node and show connection note popup
-              console.log(`Node "${capitalizedName}" exists, merging visitor into existing node`);
-              
-              const existingNode = existingNodeCheck.records[0].get('u').properties;
-              
-              // Get the NFC holder name from the visitor's connection
-              const nfcHolderResult = await session.run(
-                `MATCH (visitor:User {name: $visitorName})-[r:CONNECTED_TO]->(holder:User)
-                 RETURN holder.name as holderName`,
-                { visitorName: latestNode }
-              );
-              
-              const nfcHolderName = nfcHolderResult.records[0]?.get('holderName');
-              
-              if (nfcHolderName) {
-                // Store the connection details for the relationship note
-                setCurrentNfcConnection({
-                  source: capitalizedName,
-                  target: nfcHolderName
-                });
-                
-                // Check if the existing node is already connected to the NFC holder
-                const existingConnectionCheck = await session.run(
-                  `MATCH (existing:User {name: $existingName})-[r:CONNECTED_TO]->(holder:User {name: $holderName})
-                   RETURN r`,
-                  { existingName: capitalizedName, holderName: nfcHolderName }
-                );
-                
-                if (existingConnectionCheck.records.length === 0) {
-                  // No existing connection, create one
-                  await session.run(
-                    `MATCH (existing:User {name: $existingName}), (holder:User {name: $holderName})
-                     CREATE (existing)-[r:CONNECTED_TO]->(holder)
-                     SET r.createdAt = $timestamp`,
-                    { existingName: capitalizedName, holderName: nfcHolderName, timestamp: Date.now() }
-                  );
-                  console.log(`Created new connection from "${capitalizedName}" to "${nfcHolderName}"`);
-                } else {
-                  console.log(`Connection from "${capitalizedName}" to "${nfcHolderName}" already exists`);
-                }
-                
-                // Delete the visitor node
-                await session.run(
-                  `MATCH (visitor:User {name: $visitorName})
-                   DETACH DELETE visitor`,
-                  { visitorName: latestNode }
-                );
-                
-                console.log(`Merged visitor into existing node "${capitalizedName}"`);
-              }
-              
-              setShowNfcNamePopup(false);
-              setNfcNameInput("");
-              setNfcRoleInput("");
-              setSelectedNode(existingNode);
-              setRelationshipNote("");
-              setShowNfcRelationshipPopup(true); // Show NFC relationship note popup
-              
-              // Don't reload data to avoid triggering duplicate cleanup again
-              // Just focus on the existing node
-              console.log(`Merged visitor into existing node "${capitalizedName}", focusing on existing node`);
-              
-              // Update the latestNode to the existing node so it gets focused
-              // We'll let the user manually refresh if needed
-            } else {
-              // Node doesn't exist - show profile completion popup
-              console.log(`Node "${capitalizedName}" doesn't exist, showing profile completion popup`);
-              setShowNfcNamePopup(false);
-              setNfcNameInput("");
-              setNfcRoleInput("");
-              setShowProfilePopup(true);
-              setSelectedNode({ name: capitalizedName, role: nfcRoleInput, location: "", website: "" });
-              setEditedNode({ name: capitalizedName, role: nfcRoleInput, location: "", website: "" });
-            }
-          } catch (error) {
-            console.error("Error checking for existing node:", error);
-          } finally {
-            session.close();
-          }
-        };
-
-        const saveNewProfileFromNfc = async () => {
-          if (!editedNode || !pendingNfcName) return;
-
-          const session = driver.session();
-          try {
-            // Update the visitor node with the new name and profile information
-            await session.run(
-              `MATCH (visitor:User {name: $visitorName}) 
-               SET visitor.name = $newName, visitor.role = $role, visitor.location = $location, visitor.website = $website`,
-              {
-                visitorName: latestNode,
-                newName: editedNode.name,
-                role: editedNode.role || '',
-                location: editedNode.location || '',
-                website: editedNode.website || ''
-              }
-            );
-            
-            console.log(`Updated visitor profile: ${editedNode.name} with role: ${editedNode.role}, location: ${editedNode.location}, website: ${editedNode.website}`);
-            setShowProfilePopup(false);
-            
-            // Get the NFC holder name from the visitor's connection
-            const nfcHolderResult = await session.run(
-              `MATCH (visitor:User {name: $visitorName})-[r:CONNECTED_TO]->(holder:User)
-               RETURN holder.name as holderName`,
-              { visitorName: editedNode.name }
-            );
-            
-            const nfcHolderName = nfcHolderResult.records[0]?.get('holderName');
-            
-            if (nfcHolderName) {
-              // Store the connection details for the relationship note
-              setCurrentNfcConnection({
-                source: editedNode.name,
-                target: nfcHolderName
-              });
-              
-              // Show connection note popup for the new user
-              setSelectedNode({ name: nfcHolderName, role: "", location: "", website: "" });
-              setRelationshipNote("");
-              setShowNfcRelationshipPopup(true);
-            } else {
-              // No NFC holder found, just close the popup
-              setSelectedNode(null);
-              setEditedNode(null);
-              setPendingNfcName("");
-              setCurrentNfcConnection(null);
-            }
-            
-            // Reload data to show the updated node
-            await loadData(editedNode.name);
-          } catch (error) {
-            console.error("Error saving new profile from NFC:", error);
-          } finally {
-            session.close();
-          }
-        };
-
         // Helper function to generate human-readable answers from query results
         const generateAnalyticalAnswer = (question, result, query) => {
           const questionLower = question.toLowerCase();
@@ -3096,6 +2844,15 @@ return (
       >
         {timelineMode ? 'Exit Timeline' : 'Timeline'}
       </button>
+      {localStorage.getItem("greifnet_phone_owner") && (
+        <button 
+          id="reset-phone"
+          onClick={() => window.location.assign("/GreifNet/#/reset")}
+          style={{ fontSize: "10px", opacity: 0.5, padding: "2px 6px", marginLeft: "4px" }}
+        >
+          Reset Phone
+        </button>
+      )}
       
       {/* Timeline Controls */}
       {timelineMode && (
@@ -3490,98 +3247,9 @@ return (
   linkDirectionalArrowLength={5}
   />
 
-  {/* NFC Name Input Popup */}
-  {showNfcNamePopup && (
-    <div 
-      style={{ position: "absolute", top: "20%", left: "50%", transform: "translate(-50%, -50%)", padding: "20px", backgroundColor: "white", border: "1px solid black", boxShadow: "0px 0px 10px rgba(0, 0, 0, 0.3)", zIndex: 1000, minWidth: "300px" }}
-      onClick={(e) => e.stopPropagation()}
-    >
-      <h3>Enter Info</h3>
-      <p><strong>Name:</strong>
-      <input 
-        value={nfcNameInput} 
-        onChange={(e) => setNfcNameInput(e.target.value)}
-        placeholder="Enter your name" 
-        style={{ width: "100%", marginTop: "5px", padding: "5px" }}
-        onKeyPress={(e) => {
-          if (e.key === 'Enter') {
-            handleNfcNameSubmit();
-          }
-        }}
-      /></p>
-
-      <p><strong>Program:</strong>
-      <input 
-        value={nfcRoleInput} 
-        onChange={(e) => setNfcRoleInput(e.target.value)}
-        placeholder="e.g., MSEI, MSSE, MSBA, MBA, etc." 
-        style={{ width: "100%", marginTop: "5px", padding: "5px" }}
-        onKeyPress={(e) => {
-          if (e.key === 'Enter') {
-            handleNfcNameSubmit();
-          }
-        }}
-      /></p>
-
-      <p><button onClick={handleNfcNameSubmit} style={{ marginRight: "10px", padding: "8px 16px" }}>Continue</button>
-      <button onClick={() => {
-        setShowNfcNamePopup(false);
-        setNfcNameInput("");
-        setNfcRoleInput("");
-      }} style={{ padding: "8px 16px" }}>Cancel</button></p>
-    </div>
-  )}
-
-  {/* Profile Completion Popup (for new nodes) */}
-  {showProfilePopup && selectedNode && editedNode && (
-    <div 
-      style={{ position: "absolute", top: "20%", left: "50%", transform: "translate(-50%, -50%)", padding: "20px", backgroundColor: "white", border: "1px solid black", boxShadow: "0px 0px 10px rgba(0, 0, 0, 0.3)", zIndex: 1000, minWidth: "300px" }}
-      onClick={(e) => e.stopPropagation()}
-    >
-      <h3>Complete Your Profile</h3>
-      <p><strong>Name:</strong>
-      <input 
-      name="name" 
-      value={editedNode.name} 
-        placeholder="Enter your name" 
-      onChange={handleEditChange}
-        style={{ width: "100%", marginTop: "5px", padding: "5px" }}
-      /></p>
-
-      <p><strong>Program:</strong>
-      <input 
-        name="role" 
-        value={editedNode.role || ""} 
-        placeholder="e.g., MSEI, MBA, BS, MS, PhD" 
-        onChange={handleEditChange}
-        style={{ width: "100%", marginTop: "5px", padding: "5px" }}
-      /></p>
-
-      <p><strong>Location:</strong>
-      <input 
-        name="location" 
-        value={editedNode.location || ""} 
-        placeholder="e.g., Los Angeles, CA" 
-        onChange={handleEditChange}
-        style={{ width: "100%", marginTop: "5px", padding: "5px" }}
-      /></p>
-
-      <p><strong>Email/Website:</strong>
-      <input 
-        name="website" 
-        value={editedNode.website || ""} 
-        placeholder="your.email@example.com" 
-        onChange={handleEditChange}
-        style={{ width: "100%", marginTop: "5px", padding: "5px" }}
-      /></p>
-
-      <p><button onClick={saveNewProfileFromNfc} style={{ marginRight: "10px", padding: "8px 16px" }}>Save Profile</button>
-      <button onClick={() => setShowProfilePopup(false)} style={{ padding: "8px 16px" }}>Cancel</button></p>
-    </div>
-  )}
 
   {/* Regular Node Info Popup (for clicking on any node) */}
-  {selectedNode && !showProfilePopup && !showNfcNamePopup && !showNfcRelationshipPopup && (
+  {selectedNode && (
     <div 
       style={{ position: "absolute", top: "20%", left: "50%", transform: "translate(-50%, -50%)", padding: "20px", backgroundColor: "white", border: "1px solid black", boxShadow: "0px 0px 10px rgba(0, 0, 0, 0.3)", zIndex: 1000, minWidth: "300px" }}
       onClick={(e) => e.stopPropagation()}
@@ -3599,36 +3267,6 @@ return (
       </p>}
       
 
-    </div>
-  )}
-
-  {/* NFC Relationship Note Popup (only during NFC flow) */}
-  {showNfcRelationshipPopup && selectedNode && (
-    <div 
-      style={{ position: "absolute", top: "20%", left: "50%", transform: "translate(-50%, -50%)", padding: "20px", backgroundColor: "white", border: "1px solid black", boxShadow: "0px 0px 10px rgba(0, 0, 0, 0.3)", zIndex: 1000, minWidth: "300px" }}
-      onClick={(e) => e.stopPropagation()}
-    >
-      <h3>Add Connection Note</h3>
-      <p><strong>Connected to:</strong> {selectedNode?.name}</p>
-      {selectedNode?.role && <p><strong>Program:</strong> {selectedNode.role}</p>}
-      {selectedNode?.location && <p><strong>Location:</strong> {selectedNode.location}</p>}
-      {selectedNode?.website && <p><strong>Email:</strong>{" "}
-        <a href={`mailto:${selectedNode.website}`}>
-          {selectedNode.website.length > 30 
-            ? `${selectedNode.website.substring(0, 30)}...`
-          : selectedNode.website}
-        </a>
-      </p>}
-      
-      <p><strong>Note:</strong>
-      <textarea 
-        value={relationshipNote} 
-        onChange={(e) => setRelationshipNote(e.target.value)}
-        placeholder="e.g., Met at USC networking event, Introduced by mutual friend, Worked together on project..."
-        style={{ width: "100%", marginTop: "5px", padding: "5px", minHeight: "80px", resize: "vertical" }}
-      /></p>
-
-      <p><button onClick={saveRelationshipNote} style={{ padding: "8px 16px" }}>Save</button></p>
     </div>
   )}
 
