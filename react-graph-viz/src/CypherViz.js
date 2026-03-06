@@ -1548,8 +1548,6 @@ const NFCTrigger = ({ addNode }) => {
         const [showNfcNamePopup, setShowNfcNamePopup] = useState(false); // For showing NFC name input popup
         const [showProfilePopup, setShowProfilePopup] = useState(false); // For showing profile completion popup
         const [pendingNfcName, setPendingNfcName] = useState(""); // Store the name that was entered
-        const [selectedLink, setSelectedLink] = useState(null); // For selected relationship/link
-        const [relationshipData, setRelationshipData] = useState({}); // Store relationship data
         const [showNfcRelationshipPopup, setShowNfcRelationshipPopup] = useState(false);
         const [currentNfcConnection, setCurrentNfcConnection] = useState(null); // For NFC relationship note popup
         const [hoveredLink, setHoveredLink] = useState(null); // For link hover effects
@@ -2136,43 +2134,6 @@ const NFCTrigger = ({ addNode }) => {
             setFocusNode(node.name);
           } else {
             setFocusNode(null);
-          }
-        };
-
-        const handleLinkClick = async (link) => {
-          if (!link) return;
-          
-          const sourceName = typeof link.source === 'object' ? link.source.name : link.source;
-          const targetName = typeof link.target === 'object' ? link.target.name : link.target;
-          
-          console.log(`Link clicked: ${sourceName} -> ${targetName}`);
-          
-          const session = driver.session();
-          try {
-            // Get relationship data including notes
-            const relationshipResult = await session.run(
-              `MATCH (source:User {name: $sourceName})-[r:CONNECTED_TO]->(target:User {name: $targetName})
-               RETURN r.note as note, source.name as sourceName, target.name as targetName`,
-              { sourceName: sourceName, targetName: targetName }
-            );
-            
-            if (relationshipResult.records.length > 0) {
-              const record = relationshipResult.records[0];
-              const note = record.get('note');
-              
-              setSelectedLink(link);
-              setRelationshipData({
-                sourceName: sourceName,
-                targetName: targetName,
-                note: note
-              });
-              
-              console.log(`Relationship data: ${sourceName} -> ${targetName}, Note: ${note}`);
-            }
-          } catch (error) {
-            console.error("Error fetching relationship data:", error);
-          } finally {
-            session.close();
           }
         };
 
@@ -3345,7 +3306,6 @@ return (
 
   onNodeClick={handleNodeClick}
   onNodeHover={handleNodeHover}
-  onLinkClick={handleLinkClick}
   onLinkHover={handleLinkHover}
 
   onBackgroundClick={() => {
@@ -3356,9 +3316,6 @@ return (
     setSelectedNode(null);
     setShowAnalyticalModal(false);
     setAnalyticalAnswer(null);
-    setSelectedLink(null);
-    setRelationshipData({});
-    
     // Clear any active focus timeouts when background is clicked
     // Note: focusTimeout is managed in GraphView component, so we don't need to clear it here
   }}
@@ -3611,39 +3568,6 @@ return (
       <p><button onClick={saveRelationshipNote} style={{ padding: "8px 16px" }}>Save</button></p>
     </div>
   )}
-
-  {/* Relationship Note Popup */}
-  {selectedLink && relationshipData && (
-    <div 
-      style={{ position: "absolute", top: "30%", left: "50%", transform: "translate(-50%, -50%)", padding: "20px", backgroundColor: "white", border: "1px solid black", boxShadow: "0px 0px 10px rgba(0, 0, 0, 0.3)", zIndex: 1000, minWidth: "300px" }}
-      onClick={(e) => e.stopPropagation()}
-    >
-      <h3>Connection Details</h3>
-      <p><strong>From:</strong> {relationshipData.sourceName}</p>
-      <p><strong>To:</strong> {relationshipData.targetName}</p>
-      
-      {relationshipData.note ? (
-        <>
-          <p><strong>Note:</strong></p>
-          <div style={{ 
-            backgroundColor: "#f5f5f5", 
-            padding: "10px", 
-            borderRadius: "4px", 
-            marginTop: "5px",
-            fontStyle: "italic"
-          }}>
-            "{relationshipData.note}"
-          </div>
-        </>
-      ) : (
-        <p style={{ color: "#666", fontStyle: "italic" }}>No note added yet.</p>
-      )}
-      
-
-    </div>
-  )}
-
-
 
   </div>
   );
