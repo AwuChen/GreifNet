@@ -1,14 +1,14 @@
 {
   "files": {
     "main.css": "/GreifNet/static/css/main.ead59979.chunk.css",
-    "main.js": "/GreifNet/static/js/main.978afba3.chunk.js",
-    "main.js.map": "/GreifNet/static/js/main.978afba3.chunk.js.map",
+    "main.js": "/GreifNet/static/js/main.e7eff37e.chunk.js",
+    "main.js.map": "/GreifNet/static/js/main.e7eff37e.chunk.js.map",
     "runtime-main.js": "/GreifNet/static/js/runtime-main.7c1d5643.js",
     "runtime-main.js.map": "/GreifNet/static/js/runtime-main.7c1d5643.js.map",
     "static/js/2.a322ea9a.chunk.js": "/GreifNet/static/js/2.a322ea9a.chunk.js",
     "static/js/2.a322ea9a.chunk.js.map": "/GreifNet/static/js/2.a322ea9a.chunk.js.map",
     "index.html": "/GreifNet/index.html",
-    "precache-manifest.da2c80802bb2168ec4b4e806d0f02f78.js": "/GreifNet/precache-manifest.da2c80802bb2168ec4b4e806d0f02f78.js",
+    "precache-manifest.71ce9115e661d5129c375c255a500b54.js": "/GreifNet/precache-manifest.71ce9115e661d5129c375c255a500b54.js",
     "service-worker.js": "/GreifNet/service-worker.js",
     "static/css/main.ead59979.chunk.css.map": "/GreifNet/static/css/main.ead59979.chunk.css.map",
     "static/js/2.a322ea9a.chunk.js.LICENSE.txt": "/GreifNet/static/js/2.a322ea9a.chunk.js.LICENSE.txt"
@@ -17,6 +17,6 @@
     "static/js/runtime-main.7c1d5643.js",
     "static/js/2.a322ea9a.chunk.js",
     "static/css/main.ead59979.chunk.css",
-    "static/js/main.978afba3.chunk.js"
+    "static/js/main.e7eff37e.chunk.js"
   ]
 }
