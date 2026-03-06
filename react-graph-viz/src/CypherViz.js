@@ -1573,11 +1573,10 @@ const ResetPhone = () => {
         const [mutatedNodes, setMutatedNodes] = useState([]); // Track nodes created/modified by mutation queries
         const [analyticalAnswer, setAnalyticalAnswer] = useState(null); // For displaying analytical answers
         const [showAnalyticalModal, setShowAnalyticalModal] = useState(false); // For showing/hiding the answer modal
-        const [selectedLink, setSelectedLink] = useState(null); // For selected relationship/link
-        const [relationshipData, setRelationshipData] = useState({}); // Store relationship data
-        const [hoveredLink, setHoveredLink] = useState(null); // For link hover effects
+        const [hoveredNode, setHoveredNode] = useState(null); // Node hover visual feedback
         const [focusTimeout, setFocusTimeout] = useState(null); // Track focus timeout
         const [autoZoomTriggered, setAutoZoomTriggered] = useState(false); // Track if auto-zoom has been triggered
+        const graphData = timelineMode && timelineData ? timelineData : data;
 
         // Detect when latestNode changes (NFC addition) and set lastAction
         useEffect(() => {
@@ -1594,7 +1593,7 @@ const ResetPhone = () => {
 
         // Initial zoom when graph first loads
         useEffect(() => {
-          if (fgRef.current && data.nodes.length > 0 && !lastAction) {
+          if (fgRef.current && graphData.nodes.length > 0 && !lastAction) {
             // Wait a bit for the graph to settle, then zoom to 2x
             setTimeout(() => {
               if (fgRef.current) {
@@ -1602,14 +1601,14 @@ const ResetPhone = () => {
               }
             }, 1000);
           }
-        }, [data.nodes, fgRef, lastAction]);
+        }, [graphData, fgRef, lastAction]);
 
         // Compute 1-degree neighbors of latestNode
         const getOneDegreeNodes = () => {
-          if (!latestNode || !data) return new Set();
+          if (!latestNode || !graphData) return new Set();
           const neighbors = new Set();
           neighbors.add(latestNode);
-          data.links.forEach(link => {
+          graphData.links.forEach(link => {
             if (link.source === latestNode) neighbors.add(link.target);
             if (link.target === latestNode) neighbors.add(link.source);
           });
@@ -1620,12 +1619,12 @@ const ResetPhone = () => {
         // Compute N-degree neighbors of latestNode
         const visibleDegree = 1; // Change this value to adjust visible degree
         const getNDegreeNodes = (startNode, degree) => {
-          if (!startNode || !data) return new Set();
+          if (!startNode || !graphData) return new Set();
           const visited = new Set();
           let currentLevel = new Set([startNode]);
           for (let d = 0; d < degree; d++) {
             const nextLevel = new Set();
-            data.links.forEach(link => {
+            graphData.links.forEach(link => {
               // Normalize source/target to node names if they are objects
               const sourceName = typeof link.source === 'object' ? link.source.name : link.source;
               const targetName = typeof link.target === 'object' ? link.target.name : link.target;
@@ -1645,8 +1644,63 @@ const ResetPhone = () => {
           visited.add(startNode);
           return visited;
         };
-        // For visibility: use hover (focusNode) if available, otherwise clicked node, otherwise latestNode
-        const visibilityFocus = focusNode || clickedNode || latestNode;
+
+        // Compute shortest-path degree from the current viewer (phone owner preferred)
+        const getNodeDistanceMap = (startNode) => {
+          if (!startNode || !graphData) return new Map();
+
+          const adjacency = new Map();
+          graphData.nodes.forEach((node) => {
+            adjacency.set(node.name, new Set());
+          });
+
+          graphData.links.forEach((link) => {
+            const sourceName = typeof link.source === 'object' ? link.source.name : link.source;
+            const targetName = typeof link.target === 'object' ? link.target.name : link.target;
+            if (!adjacency.has(sourceName)) adjacency.set(sourceName, new Set());
+            if (!adjacency.has(targetName)) adjacency.set(targetName, new Set());
+            adjacency.get(sourceName).add(targetName);
+            adjacency.get(targetName).add(sourceName);
+          });
+
+          const distanceMap = new Map([[startNode, 0]]);
+          const queue = [startNode];
+
+          while (queue.length > 0) {
+            const current = queue.shift();
+            const currentDistance = distanceMap.get(current);
+            const neighbors = adjacency.get(current) || new Set();
+
+            neighbors.forEach((neighbor) => {
+              if (!distanceMap.has(neighbor)) {
+                distanceMap.set(neighbor, currentDistance + 1);
+                queue.push(neighbor);
+              }
+            });
+          }
+
+          return distanceMap;
+        };
+
+        const viewerName = localStorage.getItem("greifnet_phone_owner");
+        const viewerNode = viewerName
+          ? graphData.nodes.find(
+              (node) => node.name.toLowerCase() === viewerName.toLowerCase()
+            )?.name
+          : null;
+        // Keep privacy anchored to the viewer so hover/click never expands access.
+        const stableViewerNode = viewerNode || latestNode || null;
+        const nodeDistanceMap = getNodeDistanceMap(stableViewerNode);
+
+        const getNodeInfoTier = (nodeName) => {
+          const distance = nodeDistanceMap.get(nodeName);
+          if (distance === undefined) return "minimal";
+          if (distance <= 1) return "full";
+          if (distance === 2) return "nameOnly";
+          return "minimal";
+        };
+        // Keep neighborhood visibility anchored to the viewer as well.
+        const visibilityFocus = stableViewerNode;
         // For zoom: use the most recent action
         const zoomFocus = lastAction === 'search' ? 'search' : 
                          lastAction === 'click' ? clickedNode : 
@@ -1656,7 +1710,7 @@ const ResetPhone = () => {
         
         // Always include search results in visibility if there's a search term
         if (inputValue && inputValue.trim()) {
-          const searchMatches = data.nodes.filter(node => 
+          const searchMatches = graphData.nodes.filter(node => 
             node.name.toLowerCase().includes(inputValue.toLowerCase()) ||
             (node.location && node.location.toLowerCase().includes(inputValue.toLowerCase())) ||
             (node.role && node.role.toLowerCase().includes(inputValue.toLowerCase())) ||
@@ -1678,7 +1732,7 @@ const ResetPhone = () => {
         
         const zoomNodes = lastAction === 'search' ? 
                          (() => {
-                           const searchMatches = data.nodes.filter(node => 
+                          const searchMatches = graphData.nodes.filter(node => 
                              node.name.toLowerCase().includes(inputValue.toLowerCase()) ||
                              (node.location && node.location.toLowerCase().includes(inputValue.toLowerCase())) ||
                              (node.role && node.role.toLowerCase().includes(inputValue.toLowerCase())) ||
@@ -1721,7 +1775,7 @@ const ResetPhone = () => {
           // Only auto-zoom if there are nodes to zoom to
           if (zoomNodes.size > 0) {
             const performAutoZoom = () => {
-              const visibleNodes = data.nodes.filter(node => zoomNodes.has(node.name));
+              const visibleNodes = graphData.nodes.filter(node => zoomNodes.has(node.name));
               if (visibleNodes.length === 0) return;
               
               // Calculate bounding box of visible nodes
@@ -2133,81 +2187,10 @@ const ResetPhone = () => {
         const handleNodeHover = (node) => {
           if (node) {
             setFocusNode(node.name);
+            setHoveredNode(node.name);
           } else {
             setFocusNode(null);
-          }
-        };
-
-        const handleLinkClick = async (link) => {
-          if (!link) return;
-          
-          const sourceName = typeof link.source === 'object' ? link.source.name : link.source;
-          const targetName = typeof link.target === 'object' ? link.target.name : link.target;
-          
-          console.log(`Link clicked: ${sourceName} -> ${targetName}`);
-          
-          const session = driver.session();
-          try {
-            // Get relationship data including notes
-            const relationshipResult = await session.run(
-              `MATCH (source:User {name: $sourceName})-[r:CONNECTED_TO]->(target:User {name: $targetName})
-               RETURN r.note as note, source.name as sourceName, target.name as targetName`,
-              { sourceName: sourceName, targetName: targetName }
-            );
-            
-            if (relationshipResult.records.length > 0) {
-              const record = relationshipResult.records[0];
-              const note = record.get('note');
-              
-              setSelectedLink(link);
-              setRelationshipData({
-                sourceName: sourceName,
-                targetName: targetName,
-                note: note
-              });
-              
-              console.log(`Relationship data: ${sourceName} -> ${targetName}, Note: ${note}`);
-            }
-          } catch (error) {
-            console.error("Error fetching relationship data:", error);
-          } finally {
-            session.close();
-          }
-        };
-
-        const handleLinkHover = async (link) => {
-          if (!link) {
-            setHoveredLink(null);
-            return;
-          }
-          
-          const sourceName = typeof link.source === 'object' ? link.source.name : link.source;
-          const targetName = typeof link.target === 'object' ? link.target.name : link.target;
-          
-          const session = driver.session();
-          try {
-            // Get relationship data including notes
-            const relationshipResult = await session.run(
-              `MATCH (source:User {name: $sourceName})-[r:CONNECTED_TO]->(target:User {name: $targetName})
-               RETURN r.note as note, source.name as sourceName, target.name as targetName`,
-              { sourceName: sourceName, targetName: targetName }
-            );
-            
-            if (relationshipResult.records.length > 0) {
-              const record = relationshipResult.records[0];
-              const note = record.get('note');
-              
-              setHoveredLink({
-                link: link,
-                sourceName: sourceName,
-                targetName: targetName,
-                note: note
-              });
-            }
-          } catch (error) {
-            console.error("Error fetching relationship data:", error);
-          } finally {
-            session.close();
+            setHoveredNode(null);
           }
         };
 
@@ -2822,7 +2805,7 @@ return (
     <div width="95%">
       <input
         type="text"
-        placeholder="Show me all the MSEI students from CA"
+        placeholder="Who else should I connect with?"
         style={{ display: "block", width: "95%", height: "40px", margin: "0 auto", textAlign: "center", padding: "8px", border: "1px solid #ccc", borderRadius: "4px" }}
         value={inputValue}
         onChange={handleInputChange}
@@ -3107,20 +3090,19 @@ return (
 
   <ForceGraph2D
   ref={fgRef}
-  graphData={timelineMode && timelineData ? timelineData : data}
+  graphData={graphData}
   nodeId="name"
-  nodeLabel={(node) => node.role || "No Program Specified"}
-  linkLabel={(link) => {
-    if (hoveredLink && hoveredLink.link === link) {
-      return hoveredLink.note || "No note added";
+  nodeLabel={(node) => {
+    const infoTier = getNodeInfoTier(node.name);
+    if (infoTier === "full" || infoTier === "nameOnly") {
+      return node.name;
     }
-    return null;
+    return "";
   }}
+  linkLabel={() => null}
 
   onNodeClick={handleNodeClick}
   onNodeHover={handleNodeHover}
-  onLinkClick={handleLinkClick}
-  onLinkHover={handleLinkHover}
 
   onBackgroundClick={() => {
     setFocusNode(null);
@@ -3130,8 +3112,7 @@ return (
     setSelectedNode(null);
     setShowAnalyticalModal(false);
     setAnalyticalAnswer(null);
-    setSelectedLink(null);
-    setRelationshipData({});
+    setHoveredNode(null);
     
     // Clear any active focus timeouts when background is clicked
     // Note: focusTimeout is managed in GraphView component, so we don't need to clear it here
@@ -3144,8 +3125,11 @@ return (
         (node.role && node.role.toLowerCase().includes(inputValue.toLowerCase())) ||
         (node.website && node.website.toLowerCase().includes(inputValue.toLowerCase())));
     const isNDegree = visibilityNodes.has(node.name);
+    const infoTier = getNodeInfoTier(node.name);
+    const isViewerNode = viewerNode && node.name === viewerNode;
+    const isNodeHovered = hoveredNode === node.name;
 
-    ctx.globalAlpha = isNDegree ? 1.0 : 0.2;
+    ctx.globalAlpha = isViewerNode ? 1.0 : (isNDegree ? 1.0 : 0.2);
     
     // Add breathing effect when user is idle or transitioning
     let nodeRadius = 6;
@@ -3173,7 +3157,11 @@ return (
     // Use latestNode for editing (black), pollingFocusNode for viewing (green), clickedNode for selection (gray), or white for normal
     // Visual states persist even after focus period ends
     let fillColor = "white";
-    if (node.name === latestNode) {
+    if (isViewerNode) {
+      fillColor = "black"; // Always keep viewer node fully black
+    } else if (isNodeHovered) {
+      fillColor = "#d3d3d3"; // Light gray on hover
+    } else if (node.name === latestNode) {
       fillColor = "black"; // Editable node - persists after focus
     } else if (node.name === pollingFocusNode) {
       fillColor = "green"; // Non-editable polling focus - persists after focus
@@ -3200,7 +3188,7 @@ return (
     // Removed shadow and alpha effects for performance
     
     ctx.fillStyle = fillColor;
-    ctx.strokeStyle = isHighlighted ? "red" : "black";
+    ctx.strokeStyle = (isViewerNode || isNodeHovered) ? "black" : (isHighlighted ? "red" : "black");
     ctx.lineWidth = isHighlighted ? 3 : 2;
 
     ctx.beginPath();
@@ -3213,8 +3201,10 @@ return (
     ctx.fillStyle = "gray";
     
     // Extract first name from full name
-    const firstName = node.name.split(' ')[0];
-    ctx.fillText(firstName, node.x + 10, node.y);
+    if (infoTier !== "minimal") {
+      const firstName = node.name.split(' ')[0];
+      ctx.fillText(firstName, node.x + 10, node.y);
+    }
 
     ctx.globalAlpha = 1.0; // Reset alpha for next node
   }}
@@ -3222,13 +3212,6 @@ return (
     const sourceName = typeof link.source === 'object' ? link.source.name : link.source;
     const targetName = typeof link.target === 'object' ? link.target.name : link.target;
     const isConnected = visibilityNodes.has(sourceName) && visibilityNodes.has(targetName);
-    
-    // Check if this link is being hovered
-    const isHovered = hoveredLink && hoveredLink.link === link;
-    
-    if (isHovered) {
-      return '#000'; // Black when hovered
-    }
     
     return isConnected ? '#999' : '#ccc';
   }}
@@ -3252,53 +3235,39 @@ return (
       onClick={(e) => e.stopPropagation()}
     >
       <h3>Network Info</h3>
-      <p><strong>Name:</strong> {selectedNode?.name}</p>
-      {selectedNode?.role && <p><strong>Program:</strong> {selectedNode.role}</p>}
-      {selectedNode?.location && <p><strong>Location:</strong> {selectedNode.location}</p>}
-      {selectedNode?.website && <p><strong>Email:</strong>{" "}
-        <a href={`mailto:${selectedNode.website}`}>
-        {selectedNode.website.length > 30 
-          ? `${selectedNode.website.substring(0, 30)}...`
-        : selectedNode.website}
-        </a>
-      </p>}
+      {(() => {
+        const infoTier = getNodeInfoTier(selectedNode?.name);
+        if (infoTier === "full") {
+          return (
+            <>
+              <p><strong>Name:</strong> {selectedNode?.name}</p>
+              {selectedNode?.role && <p><strong>Program:</strong> {selectedNode.role}</p>}
+              {selectedNode?.location && <p><strong>Location:</strong> {selectedNode.location}</p>}
+              {selectedNode?.website && <p><strong>Email:</strong>{" "}
+                <a href={`mailto:${selectedNode.website}`}>
+                {selectedNode.website.length > 30
+                  ? `${selectedNode.website.substring(0, 30)}...`
+                : selectedNode.website}
+                </a>
+              </p>}
+            </>
+          );
+        }
+
+        if (infoTier === "nameOnly") {
+          return <p><strong>Name:</strong> {selectedNode?.name}</p>;
+        }
+
+        return (
+          <p style={{ color: "#666", fontStyle: "italic" }}>
+            This profile is outside your visibility range.
+          </p>
+        );
+      })()}
       
 
     </div>
   )}
-
-  {/* Relationship Note Popup */}
-  {selectedLink && relationshipData && (
-    <div 
-      style={{ position: "absolute", top: "30%", left: "50%", transform: "translate(-50%, -50%)", padding: "20px", backgroundColor: "white", border: "1px solid black", boxShadow: "0px 0px 10px rgba(0, 0, 0, 0.3)", zIndex: 1000, minWidth: "300px" }}
-      onClick={(e) => e.stopPropagation()}
-    >
-      <h3>Connection Details</h3>
-      <p><strong>From:</strong> {relationshipData.sourceName}</p>
-      <p><strong>To:</strong> {relationshipData.targetName}</p>
-      
-      {relationshipData.note ? (
-        <>
-          <p><strong>Note:</strong></p>
-          <div style={{ 
-            backgroundColor: "#f5f5f5", 
-            padding: "10px", 
-            borderRadius: "4px", 
-            marginTop: "5px",
-            fontStyle: "italic"
-          }}>
-            "{relationshipData.note}"
-          </div>
-        </>
-      ) : (
-        <p style={{ color: "#666", fontStyle: "italic" }}>No note added yet.</p>
-      )}
-      
-
-    </div>
-  )}
-
-
 
   </div>
   );
